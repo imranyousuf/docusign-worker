@@ -1,6 +1,16 @@
 # Use official Node.js LTS (Long Term Support) image
 FROM node:18-alpine
 
+# Metadata labels
+LABEL maintainer="DocuSign Worker API" \
+      version="1.0.0" \
+      description="DocuSign eSignature API Worker with comprehensive envelope management"
+
+# Install security updates
+RUN apk update && apk upgrade && \
+    apk add --no-cache dumb-init && \
+    rm -rf /var/cache/apk/*
+
 # Set working directory
 WORKDIR /app
 
@@ -11,13 +21,16 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy package files first for better Docker layer caching
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && \
-    npm cache clean --force
+# Install dependencies (production only, with clean cache)
+RUN npm ci --only=production --audit --fund=false && \
+    npm cache clean --force && \
+    rm -rf ~/.npm
 
 # Copy application code
 COPY server.js test-docusign.js ./
-COPY SETUP.md grant-consent-guide.md ./
+
+# Copy documentation (useful for API users)
+COPY SETUP.md grant-consent-guide.md API_REFERENCE.md ENVELOPE_OPERATIONS.md ./
 
 # Create uploads directory and set permissions
 RUN mkdir -p uploads && \
@@ -55,5 +68,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     req.on('timeout', () => { console.log('Health check timeout'); process.exit(1); }); \
     req.end();"
 
-# Start the application
+# Start the application with dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "server.js"]

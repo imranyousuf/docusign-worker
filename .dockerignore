@@ -19,6 +19,8 @@ README.md
 *.md
 !SETUP.md
 !grant-consent-guide.md
+!API_REFERENCE.md
+!ENVELOPE_OPERATIONS.md
 
 # IDE files
 .vscode/

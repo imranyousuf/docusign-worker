@@ -1,0 +1,23 @@
+# Development override for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  docusign-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=development
+    volumes:
+      # Mount source code for development (if you want live reload)
+      - ./server.js:/app/server.js:ro
+      - ./test-docusign.js:/app/test-docusign.js:ro
+      # Mount uploads directory
+      - ./uploads:/app/uploads
+    # Override command for development (could add nodemon later)
+    command: ["node", "server.js"]
+    # Expose logs in foreground for development
+    stdin_open: true
+    tty: true

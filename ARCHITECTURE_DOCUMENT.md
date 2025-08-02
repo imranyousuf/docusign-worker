@@ -124,7 +124,10 @@ The DocuSign Worker is a containerized Node.js API service that provides secure 
 - File upload handling (Multer)
 - JSON/URL-encoded parsing
 - Error handling and logging
-- Rate limiting (recommended for production)
+- Rate limiting (express-rate-limit middleware)
+- IP-based request throttling
+- API abuse prevention
+- Request/response logging and monitoring
 ```
 
 #### 2. **Business Logic Layer**
@@ -208,7 +211,11 @@ Scope: "signature impersonation"
    - Private key secure storage
    - Input validation and sanitization
    - File upload restrictions and scanning
-   - Request rate limiting (configurable)
+   - Rate limiting and API abuse prevention
+   - Request throttling per IP/user
+   - DDoS protection mechanisms
+   - SQL injection prevention
+   - XSS protection middleware
 
 3. **Network Security**
    - HTTPS/TLS encryption for all external communications
@@ -242,6 +249,15 @@ Network Security:
   - Internal port: 3000
   - External access: Via reverse proxy (recommended)
   - TLS termination: At load balancer level
+  - Rate limiting: Per IP and per endpoint
+  - API throttling: Configurable limits per client
+
+Rate Limiting Configuration:
+  - Default: 100 requests per 15 minutes per IP
+  - Upload endpoint: 10 requests per hour per IP
+  - Status endpoints: 1000 requests per hour per IP
+  - Burst protection: 10 requests per minute
+  - Customizable per environment and client tier
 ```
 
 ---
@@ -292,12 +308,38 @@ Response Security:
   - Rate limiting headers
   - CORS configuration
 
+Rate Limiting Strategy:
+  - IP-based throttling
+  - Endpoint-specific limits
+  - User-based quotas (future)
+  - Burst protection
+  - Sliding window algorithm
+  - Redis-backed rate store (production)
+
+Rate Limiting Tiers:
+  Standard Tier:
+    - 100 requests per 15 minutes
+    - 10 document uploads per hour
+    - 1000 status checks per hour
+  
+  Premium Tier:
+    - 500 requests per 15 minutes
+    - 50 document uploads per hour
+    - 5000 status checks per hour
+  
+  Enterprise Tier:
+    - Custom limits per agreement
+    - Dedicated rate limit pools
+    - Priority queue processing
+
 Authentication Flow:
   1. Service validates internal configuration
   2. JWT token requested from DocuSign
   3. Token cached for reuse (1-hour lifecycle)
   4. API calls authenticated with Bearer token
   5. Token refresh on expiration
+  6. Rate limit check on each request
+  7. Request queuing for high-volume clients
 ```
 
 ---
@@ -559,6 +601,23 @@ spec:
 - **21 CFR Part 11**: FDA electronic records and signatures
 - **FedRAMP**: Federal risk and authorization management
 
+#### **DocuSign Worker Service Compliance**
+- **SOC 2 Type II Ready**: Designed with SOC 2 controls in mind
+  - Security controls implementation
+  - Availability monitoring and SLAs
+  - Processing integrity validation
+  - Confidentiality protection measures
+  - Privacy controls for personal data
+- **HIPAA Compliance Ready**: Healthcare data protection capabilities
+  - Administrative safeguards
+  - Physical safeguards (container isolation)
+  - Technical safeguards (encryption, access controls)
+  - Business Associate Agreement (BAA) support
+  - Audit logging for PHI access
+  - Data breach notification procedures
+- **GDPR Compliance**: European data protection regulation
+- **PCI DSS Ready**: Payment card industry data security standards
+
 ### Audit Trail Capabilities
 
 ```yaml
@@ -586,20 +645,357 @@ Compliance Reporting:
 ### Data Governance
 
 #### **Data Classification**
-| **Data Type** | **Classification** | **Retention** | **Security Level** |
-|---------------|-------------------|---------------|-------------------|
-| **HTML Documents** | Business Confidential | 24 hours (temp) | Encrypted at rest |
-| **Signed PDFs** | Business Critical | As per DocuSign | End-to-end encryption |
-| **Audit Trails** | Legal Record | 7 years minimum | Immutable storage |
-| **API Keys** | Secret | Indefinite | Hardware security module |
-| **User Data** | Personal Data | As per privacy policy | GDPR compliant |
+| **Data Type** | **Classification** | **Retention** | **Security Level** | **Compliance** |
+|---------------|-------------------|---------------|-------------------|----------------|
+| **HTML Documents** | Business Confidential | 24 hours (temp) | Encrypted at rest | SOC 2, GDPR |
+| **Signed PDFs** | Business Critical | As per DocuSign | End-to-end encryption | SOC 2, HIPAA |
+| **Audit Trails** | Legal Record | 7 years minimum | Immutable storage | SOC 2, HIPAA, 21 CFR Part 11 |
+| **API Keys** | Secret | Indefinite | Hardware security module | SOC 2 |
+| **User Data** | Personal Data | As per privacy policy | GDPR compliant | GDPR, CCPA |
+| **Healthcare Data (PHI)** | Protected Health Information | HIPAA requirements | HIPAA safeguards | HIPAA, HITECH |
+| **Financial Data** | Confidential | Regulatory requirements | PCI DSS controls | PCI DSS, SOX |
 
 #### **Privacy & Data Protection**
 - **GDPR Compliance**: Data subject rights and consent management
 - **CCPA Compliance**: California Consumer Privacy Act requirements
+- **HIPAA Compliance**: Healthcare data protection and PHI safeguards
+  - Administrative safeguards: Access management, workforce training
+  - Physical safeguards: Container isolation, secure data centers
+  - Technical safeguards: Encryption, access controls, audit logs
+  - Business Associate Agreements (BAA) support
+  - Breach notification procedures
 - **Data Minimization**: Only collect necessary information
 - **Right to Erasure**: Document deletion capabilities
 - **Data Portability**: Export capabilities for user data
+- **Consent Management**: Explicit consent tracking for data processing
+- **Cross-border Data Transfer**: Adequate protection mechanisms
+
+---
+
+## 🚦 Rate Limiting & API Protection
+
+### Rate Limiting Architecture
+
+#### **Implementation Strategy**
+```yaml
+Rate Limiting Engine:
+  - Middleware: express-rate-limit
+  - Storage Backend: In-memory (development) / Redis (production)
+  - Algorithm: Sliding window counter
+  - Granularity: Per IP, per endpoint, per user (future)
+
+Rate Limiting Tiers:
+  Development:
+    - All endpoints: 1000 requests per hour
+    - Upload endpoint: 100 requests per hour
+    - No burst protection
+  
+  Production Standard:
+    - General API: 100 requests per 15 minutes per IP
+    - Document upload: 10 requests per hour per IP
+    - Status checks: 1000 requests per hour per IP
+    - Health checks: Unlimited (monitoring tools)
+  
+  Production Premium:
+    - General API: 500 requests per 15 minutes per IP
+    - Document upload: 50 requests per hour per IP
+    - Status checks: 5000 requests per hour per IP
+    - Priority processing queue
+  
+  Enterprise:
+    - Custom rate limits per client agreement
+    - Dedicated rate limit pools
+    - White-listed IP ranges
+    - Custom burst allowances
+```
+
+#### **Rate Limiting Headers**
+```http
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1628097600
+X-RateLimit-Window: 900
+Retry-After: 3600
+```
+
+#### **Rate Limiting Response Codes**
+```yaml
+HTTP Status Codes:
+  - 200: Request successful
+  - 429: Too Many Requests (rate limited)
+  - 503: Service Unavailable (system overload)
+
+Rate Limit Exceeded Response:
+{
+  "error": "Rate limit exceeded",
+  "code": "RATE_LIMIT_EXCEEDED",
+  "limit": 100,
+  "remaining": 0,
+  "resetTime": "2025-08-02T15:30:00Z",
+  "retryAfter": 900
+}
+```
+
+### DDoS Protection Strategy
+
+```yaml
+Layer 1 - Network Level:
+  - Cloud provider DDoS protection
+  - Load balancer rate limiting
+  - Geographic IP filtering
+  - Connection limiting per IP
+
+Layer 2 - Application Level:
+  - Express rate limiting middleware
+  - Request size limitations
+  - Slow request detection
+  - Pattern-based blocking
+
+Layer 3 - Behavioral Analysis:
+  - Abnormal traffic pattern detection
+  - Automated IP blocking
+  - Escalating rate limits for suspicious IPs
+  - Real-time threat intelligence integration
+
+Monitoring & Alerting:
+  - Rate limit breach notifications
+  - Unusual traffic pattern alerts
+  - System resource threshold warnings
+  - Automated incident response triggers
+```
+
+---
+
+## 🏥 SOC 2 & HIPAA Compliance Framework
+
+### SOC 2 Type II Compliance
+
+#### **Trust Service Criteria Implementation**
+
+**Security (CC6.0)**
+```yaml
+Access Controls:
+  - Multi-factor authentication support
+  - Role-based access control (RBAC)
+  - Principle of least privilege
+  - Regular access reviews and deprovisioning
+
+Logical and Physical Access:
+  - Container isolation and security
+  - Network segmentation
+  - Secure API endpoints
+  - Encrypted data transmission
+
+System Operations:
+  - Change management procedures
+  - Configuration management
+  - Vulnerability management
+  - Incident response procedures
+
+Risk Assessment:
+  - Regular security assessments
+  - Threat modeling
+  - Risk register maintenance
+  - Mitigation strategy implementation
+```
+
+**Availability (CC7.0)**
+```yaml
+System Monitoring:
+  - 24/7 health monitoring
+  - Performance metrics tracking
+  - Automated alerting systems
+  - SLA monitoring and reporting
+
+Capacity Management:
+  - Resource utilization monitoring
+  - Scalability planning
+  - Load testing procedures
+  - Performance optimization
+
+Backup and Recovery:
+  - Data backup procedures
+  - Disaster recovery planning
+  - Business continuity testing
+  - Recovery time objectives (RTO)
+```
+
+**Processing Integrity (CC7.1)**
+```yaml
+Data Validation:
+  - Input validation and sanitization
+  - Data integrity checks
+  - Error handling and logging
+  - Audit trail maintenance
+
+System Processing:
+  - Automated processing controls
+  - Data flow validation
+  - Error detection and correction
+  - Processing completeness checks
+```
+
+**Confidentiality (CC7.2)**
+```yaml
+Data Protection:
+  - Encryption at rest and in transit
+  - Secure key management
+  - Data classification and handling
+  - Access logging and monitoring
+
+Privacy Controls:
+  - Data minimization practices
+  - Consent management
+  - Data retention policies
+  - Secure data disposal
+```
+
+**Privacy (CC7.3)**
+```yaml
+Privacy Notice:
+  - Clear privacy policies
+  - Data collection transparency
+  - Purpose limitation
+  - Retention period disclosure
+
+Consent Management:
+  - Explicit consent collection
+  - Consent withdrawal mechanisms
+  - Consent audit trails
+  - Data subject rights management
+```
+
+### HIPAA Compliance Framework
+
+#### **Administrative Safeguards**
+```yaml
+Security Officer:
+  - Designated security officer role
+  - Security responsibilities documentation
+  - Regular security training programs
+  - Security incident procedures
+
+Workforce Training:
+  - HIPAA awareness training
+  - Role-based security training
+  - Regular training updates
+  - Training completion tracking
+
+Access Management:
+  - User access provisioning
+  - Role-based access controls
+  - Regular access reviews
+  - Termination procedures
+
+Information Review:
+  - Audit log reviews
+  - Security incident analysis
+  - Risk assessment updates
+  - Compliance monitoring
+```
+
+#### **Physical Safeguards**
+```yaml
+Facility Access:
+  - Container-based isolation
+  - Cloud provider physical security
+  - Data center security certifications
+  - Environmental controls
+
+Workstation Security:
+  - Secure development environments
+  - Access control for workstations
+  - Security configuration standards
+  - Remote access controls
+
+Device Controls:
+  - Mobile device management
+  - Bring-your-own-device policies
+  - Device encryption requirements
+  - Asset management procedures
+```
+
+#### **Technical Safeguards**
+```yaml
+Access Control:
+  - Unique user identification
+  - Automatic logoff procedures
+  - Encryption and decryption controls
+  - Role-based access implementation
+
+Audit Controls:
+  - Comprehensive audit logging
+  - Log integrity protection
+  - Regular audit log reviews
+  - Automated monitoring systems
+
+Integrity:
+  - Data integrity validation
+  - Electronic signature verification
+  - Alteration detection mechanisms
+  - Backup and recovery procedures
+
+Person or Entity Authentication:
+  - Strong authentication mechanisms
+  - Multi-factor authentication
+  - Identity verification procedures
+  - Authentication logging
+
+Transmission Security:
+  - End-to-end encryption
+  - Network security controls
+  - Secure communication protocols
+  - Data transmission monitoring
+```
+
+#### **Business Associate Agreement (BAA) Support**
+```yaml
+BAA Requirements:
+  - Permitted uses and disclosures
+  - Safeguard requirements
+  - Breach notification procedures
+  - Data return or destruction
+
+Implementation Support:
+  - BAA template provision
+  - Legal compliance documentation
+  - Audit trail capabilities
+  - Incident response procedures
+
+Ongoing Compliance:
+  - Regular compliance assessments
+  - Policy updates and reviews
+  - Staff training and awareness
+  - Vendor management procedures
+```
+
+### Compliance Monitoring & Reporting
+
+```yaml
+Automated Compliance Monitoring:
+  - Real-time compliance checking
+  - Policy violation detection
+  - Automated remediation triggers
+  - Compliance dashboard reporting
+
+Regular Assessments:
+  - Monthly compliance reviews
+  - Quarterly risk assessments
+  - Annual compliance audits
+  - Third-party security assessments
+
+Documentation Management:
+  - Policy documentation maintenance
+  - Procedure documentation updates
+  - Training record management
+  - Audit evidence collection
+
+Reporting Capabilities:
+  - Compliance status reporting
+  - Risk assessment reports
+  - Audit trail reporting
+  - Incident response reporting
+```
 
 ---
 
@@ -610,10 +1006,12 @@ Compliance Reporting:
 | **Risk** | **Impact** | **Probability** | **Mitigation Strategy** |
 |----------|------------|-----------------|------------------------|
 | **Private Key Compromise** | High | Low | Key rotation, secure storage, HSM integration |
-| **API Abuse** | Medium | Medium | Rate limiting, authentication, monitoring |
+| **API Abuse/DDoS** | Medium | Medium | Rate limiting, authentication, monitoring, WAF |
+| **Rate Limit Bypass** | Medium | Low | Multiple validation layers, IP monitoring, behavioral analysis |
 | **Container Vulnerabilities** | Medium | Low | Regular updates, security scanning, minimal base image |
 | **Network Interception** | High | Low | TLS encryption, VPN requirements, certificate pinning |
 | **Document Tampering** | High | Very Low | DocuSign integrity verification, audit trails |
+| **PHI Data Breach** | High | Low | HIPAA safeguards, encryption, access controls, monitoring |
 
 ### Operational Risks
 
@@ -703,6 +1101,9 @@ Security:
   - Access controls enforced
   - Complete audit logging
   - Intrusion detection
+  - Rate limiting enforcement
+  - DDoS protection
+  - HIPAA/SOC 2 compliance controls
 ```
 
 ### Infrastructure as Code
@@ -753,6 +1154,8 @@ CI/CD Pipeline:
    - Template management
    - Bulk document processing
    - Advanced recipient routing
+   - Enhanced rate limiting with Redis backend
+   - API analytics and monitoring dashboard
 
 ### Medium-term Development (6-12 months)
 
@@ -761,6 +1164,8 @@ CI/CD Pipeline:
    - Active Directory integration
    - Enterprise logging systems
    - Compliance reporting automation
+   - SOC 2 Type II certification
+   - HIPAA compliance validation and certification
 
 2. **Advanced Features**
    - Document template library
@@ -1027,9 +1432,11 @@ The DocuSign Worker represents a robust, secure, and scalable solution for elect
 ### **Key Benefits for InfoSec**
 - **Security-First Design**: Multi-layered security architecture
 - **Comprehensive Auditing**: Complete audit trail capabilities
-- **Compliance Support**: Built-in regulatory compliance features
+- **Compliance Support**: Built-in regulatory compliance features (SOC 2, HIPAA ready)
 - **Incident Response**: Structured monitoring and alerting
 - **Risk Mitigation**: Comprehensive risk assessment and controls
+- **Rate Limiting Protection**: Advanced API abuse prevention
+- **Data Protection**: Enterprise-grade encryption and access controls
 
 ### **Technical Excellence**
 - **Containerized Architecture**: Portable and scalable deployment

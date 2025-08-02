@@ -207,10 +207,16 @@ app.post('/api/docusign-signature', upload.single('htmlFile'), async (req, res) 
     // Read the uploaded HTML file
     const htmlContent = fs.readFileSync(req.file.path, 'utf8');
     
-    // Add signature section to HTML if not present
-    const enhancedHtml = htmlContent.includes('signature-section') 
-      ? htmlContent 
-      : htmlContent + `
+    // Add signature section to HTML if not present, or ensure {{signature}} anchor exists
+    let enhancedHtml;
+    if (htmlContent.includes('signature-section')) {
+      // If signature section exists, ensure it has the {{signature}} anchor
+      enhancedHtml = htmlContent.includes('{{signature}}') 
+        ? htmlContent 
+        : htmlContent.replace('signature-section', 'signature-section">{{signature}}');
+    } else {
+      // Add complete signature section with anchor
+      enhancedHtml = htmlContent + `
         <div class="signature-section" style="margin-top: 50px; padding: 20px; border-top: 1px solid #ccc; page-break-before: always;">
           <h3>Signature Required</h3>
           <p>Please provide your signature, name, and date below:</p>
@@ -220,8 +226,10 @@ app.post('/api/docusign-signature', upload.single('htmlFile'), async (req, res) 
               <div style="border-bottom: 1px solid #000; width: 200px; display: inline-block;"></div>
             </div>
             <div style="margin-bottom: 20px;">
-              <label>Signature: {{signature}}</label>
-              <div style="border-bottom: 1px solid #000; width: 200px; display: inline-block;"></div>
+              <label>Signature: </label>
+              <div style="border-bottom: 1px solid #000; width: 200px; display: inline-block; position: relative;">
+                {{signature}}
+              </div>
             </div>
             <div style="margin-bottom: 20px;">
               <label>Date: </label>
@@ -230,6 +238,7 @@ app.post('/api/docusign-signature', upload.single('htmlFile'), async (req, res) 
           </div>
         </div>
       `;
+    }
 
     // Initialize DocuSign client
     const apiClient = getDocuSignClient();
